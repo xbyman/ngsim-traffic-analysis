@@ -1,0 +1,14 @@
+# 忽略数据文件和结果图
+data/
+results/
+
+# Python缓存文件
+__pycache__/
+*.pyc
+
+# 临时文件
+*.zip
+*.rar
+*.csv
+"data/" 
+"results/" 
