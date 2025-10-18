@@ -2,128 +2,82 @@
 headway_analysis.py
 -------------------
 模块功能：
-分析并可视化每个断面的车头时距分布，
-并进行分布拟合（指数分布、对数正态分布）检验。
+分析并可视化每个断面的车头时距分布。
 """
 
-import os
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
-import numpy as np
-from scipy import stats
+import matplotlib.pyplot as plt  # 绘图库
+import seaborn as sns  # 统计绘图库，便于绘制带 KDE 的直方图
+import pandas as pd  # 数据处理
 
-plt.rcParams["font.sans-serif"] = ["SimHei"]  # 支持中文
-plt.rcParams["axes.unicode_minus"] = False  # 解决负号乱码
+plt.rcParams["font.sans-serif"] = ["SimHei"]  # 设置中文字体以支持中文显示
+plt.rcParams["axes.unicode_minus"] = False  # 避免负号显示问题
 
 
-def analyze_headways(results, save_dir="results"):
+def analyze_headways(results):
     """
-    分析并绘制各断面的车头时距分布图，包含分布拟合与K-S检验。
+    分析并绘制各断面的车头时距分布图。
 
     参数：
         results (dict): 来自 section_analysis 的结果字典
-        save_dir (str): 图像保存文件夹路径
+                        key=断面位置(ft)，value=DataFrame(过断面时间, 车头时距)
     返回：
-        stats (dict): 每个断面的统计指标与分布检验结果
+        stats (dict): 每个断面的统计指标（均值、标准差、变异系数）
     """
-    os.makedirs(save_dir, exist_ok=True)
-    stats_summary = {}
+    stats = {}  # 存储每个断面计算得到的统计指标
 
-    for y_section, arr_df in results.items():
-        headways = arr_df["车头时距(s)"].dropna()
+    for y_section, arr_df in results.items():  # 遍历每个断面的 DataFrame
+        headways = arr_df["车头时距(s)"].dropna()  # 去掉首行可能存在的 NaN 值
+
+        # 如果该断面没有有效数据则跳过
         if len(headways) == 0:
             continue
 
-        # === 1️⃣ 计算基础统计量 ===
-        mean_hw = headways.mean()
-        std_hw = headways.std()
-        cv_hw = std_hw / mean_hw if mean_hw > 0 else float("nan")
+        # 计算统计量：均值、标准差与变异系数
+        mean_hw = headways.mean()  # 平均车头时距
+        std_hw = headways.std()  # 标准差
+        cv_hw = std_hw / mean_hw if mean_hw > 0 else float("nan")  # 变异系数（CV）
 
-        # === 2️⃣ 拟合分布：指数分布、对数正态分布 ===
-        # 指数分布参数估计
-        loc_exp, scale_exp = stats.expon.fit(headways, floc=0)
-        # 对数正态分布参数估计
-        shape_ln, loc_ln, scale_ln = stats.lognorm.fit(headways, floc=0)
-
-        # === 3️⃣ K-S 检验 ===
-        ks_exp = stats.kstest(headways, "expon", args=(loc_exp, scale_exp))
-        ks_logn = stats.kstest(headways, "lognorm", args=(shape_ln, loc_ln, scale_ln))
-
-        # === 4️⃣ 绘制直方图 + 理论分布曲线 ===
-        fig, ax = plt.subplots(figsize=(7, 4))
-        sns.histplot(
-            headways,
-            bins=50,
-            kde=False,
-            color="skyblue",
-            edgecolor="black",
-            stat="density",
-            alpha=0.6,
-            ax=ax,
-        )
-
-        x_vals = np.linspace(headways.min(), headways.max(), 200)
-        ax.plot(
-            x_vals,
-            stats.expon.pdf(x_vals, loc_exp, scale_exp),
-            "r--",
-            lw=2,
-            label=f"指数分布 (λ={1/scale_exp:.2f})",
-        )
-        ax.plot(
-            x_vals,
-            stats.lognorm.pdf(x_vals, shape_ln, loc_ln, scale_ln),
-            "g-",
-            lw=2,
-            label="对数正态分布",
-        )
-
-        ax.set_xlabel("车头时距 (s)")
-        ax.set_ylabel("概率密度")
-        ax.set_title(f"断面 {y_section} ft 的车头时距分布拟合")
-        ax.legend()
-        ax.grid(alpha=0.3)
-        plt.tight_layout()
-
-        save_path = os.path.join(save_dir, f"headway_distribution_{y_section}ft.png")
-        plt.savefig(save_path, dpi=300, bbox_inches="tight")
-        plt.close(fig)
-        print(f"✅ 已保存图像：{save_path}")
-
-        # === 5️⃣ 汇总结果 ===
-        stats_summary[y_section] = {
+        stats[y_section] = {
             "平均车头时距(s)": mean_hw,
             "标准差(s)": std_hw,
             "变异系数(CV)": cv_hw,
-            "指数分布 p值": ks_exp.pvalue,
-            "对数正态 p值": ks_logn.pvalue,
-            "最优分布": ("指数" if ks_exp.pvalue > ks_logn.pvalue else "对数正态"),
-        }
+        }  # 保存该断面的统计结果
 
-        # 控制台输出摘要
-        print(f"\n📊 断面 {y_section} ft：")
-        print(f"  平均={mean_hw:.2f}s, 标准差={std_hw:.2f}s, CV={cv_hw:.2f}")
+        # 绘制车头时距分布的直方图（带核密度估计）
+        plt.figure(figsize=(7, 4))
+        sns.histplot(
+            headways, bins=50, kde=True, color="skyblue", edgecolor="black", alpha=0.7
+        )  # histplot 会绘制直方图并可选绘制 KDE
+        plt.xlabel("车头时距 (s)")  # x 轴标签
+        plt.ylabel("频数")  # y 轴标签
+        plt.title(f"断面 {y_section} ft 的车头时距分布")  # 图表标题
+        plt.grid(alpha=0.3)  # 添加网格线
+        plt.tight_layout()  # 自动调整布局
+        plt.show()  # 显示图形
+
         print(
-            f"  指数分布 K-S p={ks_exp.pvalue:.3f}, 对数正态 K-S p={ks_logn.pvalue:.3f}"
-        )
-        print(f"  ➤ 拟合结果：{stats_summary[y_section]['最优分布']} 分布\n")
+            f"断面 {y_section} ft：平均={mean_hw:.2f}s，标准差={std_hw:.2f}s，CV={cv_hw:.2f}"
+        )  # 打印统计摘要
 
-    return stats_summary
+    return stats  # 返回所有断面的统计字典
 
 
-# ---------------- 测试模块 ----------------
+# 测试模块（单独运行）
 if __name__ == "__main__":
     from data_loader import load_ngsim_data
     from section_analysis import compute_section_crossings
 
+    # 读取数据
     df = load_ngsim_data(
         r"C:\Users\31078\Desktop\ngsim-traffic-analysis\data\NGSIM\US-101-Main-Data\vehicle-trajectory-data\0820am-0835am\trajectories-0820am-0835am.txt"
     )
     df_lane = df[df["Lane ID"] == 2]
     sections = [200, 400, 600]
-    results = compute_section_crossings(df_lane, sections)
-    stats_summary = analyze_headways(results)
 
-    print("\n🧾 全部断面统计结果：")
-    print(pd.DataFrame(stats_summary).T.round(3))
+    # 计算断面结果
+    results = compute_section_crossings(df_lane, sections)
+
+    # 分析车头时距
+    stats = analyze_headways(results)
+    print("\n车头时距统计：")
+    print(pd.DataFrame(stats).T)
